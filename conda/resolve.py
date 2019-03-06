@@ -998,8 +998,18 @@ class Resolve(object):
         self.restore_bad(pkgs, preserve)
         return pkgs
 
+    @staticmethod
+    def tprint(label, last_time):
+        import time
+        now = time.time()
+        print(label, now - last_time)
+        return now
+
     @time_recorder(module_name=__name__)
     def solve(self, specs, returnall=False, _remove=False):
+        import time
+        start = time.time()
+
         # type: (List[str], bool) -> List[PackageRecord]
         if log.isEnabledFor(DEBUG):
             log.debug('Solving for: %s', dashlist(sorted(text_type(s) for s in specs)))
@@ -1012,6 +1022,8 @@ class Resolve(object):
         reduced_index = self.get_reduced_index(specs)
         if not reduced_index:
             return False if reduced_index is None else ([[]] if returnall else [])
+
+        tg = self.tprint("\nSolve: Getting reduced index of compliant packages", start)
 
         # Check if satisfiable
         log.debug("Solve: determining satisfiability")
@@ -1039,6 +1051,12 @@ class Resolve(object):
                 return True
             return False
 
+        # pickle the Resolve and C
+        with open("/home/trumanw/Projects/github/conda/conda/tmp/reduced_index.pkl", "wb") as fw:
+            pickle.dump(reduced_index, fw, -1)
+        with open("/home/trumanw/Projects/github/conda/conda/tmp/channels.pkl", "wb") as fw:
+            pickle.dump(self.channels, fw, -1)
+
         r2 = Resolve(reduced_index, True, channels=self.channels)
         C = r2.gen_clauses()
         solution = mysat(specs, True)
@@ -1061,6 +1079,8 @@ class Resolve(object):
                 speca.append(s)
         speca.extend(MatchSpec(s) for s in specm)
 
+        tg = self.tprint("Solve: determining satisfiability", tg)
+
         # Removed packages: minimize count
         log.debug("Solve: minimize removed packages")
         if _remove:
@@ -1068,12 +1088,16 @@ class Resolve(object):
             solution, obj7 = C.minimize(eq_optional_c, solution)
             log.debug('Package removal metric: %d', obj7)
 
+        tg = self.tprint("Solve: minimize removed packages", tg)
+
         # Requested packages: maximize versions
         log.debug("Solve: maximize versions of requested packages")
         eq_req_c, eq_req_v, eq_req_b, eq_req_t = r2.generate_version_metrics(C, specr)
         solution, obj3a = C.minimize(eq_req_c, solution)
         solution, obj3 = C.minimize(eq_req_v, solution)
         log.debug('Initial package channel/version metric: %d/%d', obj3a, obj3)
+
+        tg = self.tprint("Solve: maximize versions of requested packages", tg)
 
         # Track features: minimize feature count
         log.debug("Solve: minimize track_feature count")
@@ -1092,10 +1116,14 @@ class Resolve(object):
         solution, obj2 = C.minimize(eq_feature_metric, solution)
         log.debug('Package misfeature count: %d', obj2)
 
+        t2 = self.tprint("Solve: minimize track_feature count", tg)
+
         # Requested packages: maximize builds
         log.debug("Solve: maximize build numbers of requested packages")
         solution, obj4 = C.minimize(eq_req_b, solution)
         log.debug('Initial package build metric: %d', obj4)
+
+        tg = self.tprint("Solve: maximize build numbers of requested packages", tg)
 
         # Optional installations: minimize count
         if not _remove:
@@ -1104,11 +1132,15 @@ class Resolve(object):
             solution, obj49 = C.minimize(eq_optional_install, solution)
             log.debug('Optional package install metric: %d', obj49)
 
+            tg = self.tprint("Solve: minimize number of optional installations", tg)
+
         # Dependencies: minimize the number of packages that need upgrading
         log.debug("Solve: minimize number of necessary upgrades")
         eq_u = r2.generate_update_count(C, speca)
         solution, obj50 = C.minimize(eq_u, solution)
         log.debug('Dependency update count: %d', obj50)
+
+        tg = self.tprint("Solve: minimize number of necessary upgrades", tg)
 
         # Remaining packages: maximize versions, then builds
         log.debug("Solve: maximize versions and builds of indirect dependencies")
@@ -1119,11 +1151,15 @@ class Resolve(object):
         log.debug('Additional package channel/version/build metrics: %d/%d/%d',
                   obj5a, obj5, obj6)
 
+        tg = self.tprint("Solve: maximize versions and builds of indirect dependencies", tg)
+
         # Prune unnecessary packages
         log.debug("Solve: prune unnecessary packages")
         eq_c = r2.generate_package_count(C, specm)
         solution, obj7 = C.minimize(eq_c, solution, trymax=True)
         log.debug('Weak dependency count: %d', obj7)
+
+        tg = self.tprint("Solve: prune unnecessary packages", tg)
 
         converged = is_converged(solution)
         if not converged:
@@ -1175,4 +1211,6 @@ class Resolve(object):
             #         for psol in psolutions]
 
             # return sorted(Dist(stripfeat(dname)) for dname in psolutions[0])
+
+        tg = self.tprint("End", tg)
         return sorted((new_index[sat_name] for sat_name in psolutions[0]), key=lambda x: x.name)

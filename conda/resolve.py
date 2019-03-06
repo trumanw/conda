@@ -1017,6 +1017,7 @@ class Resolve(object):
         # Find the compliant packages
         log.debug("Solve: Getting reduced index of compliant packages")
         len0 = len(specs)
+        print(specs)
         specs = frozenset(map(MatchSpec, specs))
 
         reduced_index = self.get_reduced_index(specs)
@@ -1052,9 +1053,10 @@ class Resolve(object):
             return False
 
         # pickle the Resolve and C
-        with open("/home/trumanw/Projects/github/conda/conda/tmp/reduced_index.pkl", "wb") as fw:
+        import pickle
+        with open("/tmp/reduced_index.pkl", "wb") as fw:
             pickle.dump(reduced_index, fw, -1)
-        with open("/home/trumanw/Projects/github/conda/conda/tmp/channels.pkl", "wb") as fw:
+        with open("/tmp/channels.pkl", "wb") as fw:
             pickle.dump(self.channels, fw, -1)
 
         r2 = Resolve(reduced_index, True, channels=self.channels)
